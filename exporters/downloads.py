@@ -7,7 +7,7 @@ import io
 import json
 import zipfile
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Mapping, Optional
 
 from models.schemas import PinPack
 
@@ -99,39 +99,64 @@ def pack_to_csv(pack: PinPack) -> tuple[str, str]:
 def pack_to_zip(
     pack: PinPack,
     include_manifest: bool = True,
+    image_files: Optional[Mapping[str, bytes]] = None,
 ) -> tuple[str, bytes]:
-    """ZIP with pin_pack.txt, pin_pack.csv, manifest.json noting image filenames.
+    """ZIP with pin texts + uploaded product images under images/.
 
-    Does not embed uploaded binary images (keeps ZIP light); lists filenames
-    so the user can match Studio / local assets.
+    image_files: map of filename -> raw bytes from the Streamlit uploader.
+    Missing images are listed in the manifest as not_embedded.
     """
     txt_name, txt_body = pack_to_txt(pack)
     csv_name, csv_body = pack_to_csv(pack)
+    images = dict(image_files or {})
     buf = io.BytesIO()
+    embedded: list[str] = []
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("pin_pack.txt", txt_body)
         zf.writestr("pin_pack.csv", csv_body)
+
+        # Dedupe by filename; keep upload order
+        for name, data in images.items():
+            safe = name.rsplit("/", 1)[-1] or "image.bin"
+            zf.writestr(f"images/{safe}", data)
+            embedded.append(safe)
+
+        referenced = list(pack.product.image_filenames or [])
+        for v in pack.variants:
+            if v.image_filename and v.image_filename not in referenced:
+                referenced.append(v.image_filename)
+        missing = [n for n in referenced if n not in embedded]
+
         if include_manifest:
             manifest = {
                 "product": pack.product.to_dict(),
                 "variant_count": len(pack.variants),
-                "image_filenames": pack.product.image_filenames,
+                "image_filenames": referenced,
+                "images_embedded": embedded,
+                "images_missing": missing,
                 "variants": [
                     {
                         "variant_id": v.variant_id,
                         "aspect": v.aspect,
                         "image_filename": v.image_filename,
+                        "image_zip_path": (
+                            f"images/{v.image_filename}"
+                            if v.image_filename in embedded
+                            else None
+                        ),
                         "board_topic": v.board_topic,
                     }
                     for v in pack.variants
                 ],
-                "note": "Images are referenced by filename only — attach the matching Studio/product files when publishing.",
+                "note": (
+                    "Ready for manual Pinterest upload: use pin_pack.txt/csv for copy "
+                    "and images/ for media. Auto-publish comes later."
+                ),
             }
             zf.writestr(
                 "manifest.json",
                 json.dumps(manifest, ensure_ascii=False, indent=2),
             )
-        # Per-variant quick copy files
         for v in pack.variants:
             zf.writestr(f"variants/{v.variant_id}.txt", v.copy_block() + "\n")
     filename = _safe_name(pack.product.product_label(), "zip")

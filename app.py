@@ -57,7 +57,7 @@ UI = {
     "results": "4. Αποτελέσματα — English pin packs",
     "download_txt": "⬇️ Λήψη .txt",
     "download_csv": "⬇️ Λήψη .csv",
-    "download_zip": "⬇️ Λήψη .zip (με manifest εικόνων)",
+    "download_zip": "⬇️ Λήψη .zip (κείμενα + εικόνες)",
     "dry_run": "🧪 Dry-run publish (stub)",
     "dry_run_help": "Καταγράφει το payload τοπικά — δεν στέλνει τίποτα στο Pinterest.",
     "copy_hint": "Επίλεξε το κείμενο στο πλαίσιο και Ctrl/Cmd+C για αντιγραφή.",
@@ -86,6 +86,7 @@ def _init_state() -> None:
         "pin_pack": None,
         "studio_export": None,
         "last_dry_runs": [],
+        "upload_images": {},  # filename -> bytes for zip bundle
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -263,6 +264,12 @@ def main() -> None:
             with st.spinner("Δημιουργία English pin variants…"):
                 pack = generate_pin_pack(product, studio=studio_use, count=count)
             st.session_state["pin_pack"] = pack
+            # Keep uploaded image bytes so the ZIP is a full upload-ready pack
+            bundled = {}
+            if images:
+                for img in images:
+                    bundled[img.name] = img.getvalue()
+            st.session_state["upload_images"] = bundled
             st.success(f"Έτοιμο — {len(pack.variants)} pin variants (EN)")
 
     pack = st.session_state.get("pin_pack")
@@ -277,7 +284,10 @@ def main() -> None:
 
     txt_name, txt_body = pack_to_txt(pack)
     csv_name, csv_body = pack_to_csv(pack)
-    zip_name, zip_bytes = pack_to_zip(pack)
+    zip_name, zip_bytes = pack_to_zip(
+        pack,
+        image_files=st.session_state.get("upload_images") or {},
+    )
 
     d1, d2, d3, d4 = st.columns(4)
     with d1:
@@ -303,7 +313,7 @@ def main() -> None:
             file_name=zip_name,
             mime="application/zip",
             use_container_width=True,
-            help="Περιλαμβάνει pin_pack.txt, pin_pack.csv, manifest.json με ονόματα εικόνων",
+            help="Περιλαμβάνει pin_pack.txt, pin_pack.csv, manifest.json και τον φάκελο images/ με τις φωτό που ανέβασες",
         )
     with d4:
         if st.button(UI["dry_run"], use_container_width=True, help=UI["dry_run_help"]):
