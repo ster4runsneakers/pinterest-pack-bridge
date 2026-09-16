@@ -170,11 +170,12 @@ def main() -> None:
     )
     image_names: List[str] = []
     if images:
-        cols = st.columns(min(4, len(images)))
+        # Small thumbnails — full-res files stay intact for packs/publish
+        cols = st.columns(min(6, max(1, len(images))))
         for i, img in enumerate(images):
             image_names.append(img.name)
             with cols[i % len(cols)]:
-                st.image(img, caption=img.name, use_container_width=True)
+                st.image(img, caption=img.name, width=160)
 
     # --- Studio export ---
     st.subheader(UI["section_studio"])
